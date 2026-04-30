@@ -7,12 +7,14 @@ import pandas as pd
 
 
 def _to_str(valor) -> str:
+    # Comentário: converte qualquer valor para texto limpo.
     if valor is None:
         return ""
     return str(valor).strip()
 
 
 def _to_float(valor) -> float:
+    # Comentário: converte número vindo do banco, aceitando vírgula ou ponto.
     if valor is None or valor == "":
         return 0.0
 
@@ -32,12 +34,14 @@ def _to_float(valor) -> float:
 
 
 def _garantir_coluna(df: pd.DataFrame, coluna: str, valor_padrao="") -> pd.DataFrame:
+    # Comentário: garante que a coluna exista no DataFrame.
     if coluna not in df.columns:
         df[coluna] = valor_padrao
     return df
 
 
 def novo_grupo_logico_id(produto_codigo: str, localizacao_codigo: str, lote: str, doc_log: str = "") -> str:
+    # Comentário: cria ID único para sobra/granel.
     produto = _to_str(produto_codigo).upper() or "SEM_PRODUTO"
     local = _to_str(localizacao_codigo).upper() or "SEM_LOCAL"
     lote_txt = _to_str(lote).upper() or "SEM_LOTE"
@@ -50,6 +54,7 @@ def novo_grupo_logico_id(produto_codigo: str, localizacao_codigo: str, lote: str
 
 
 def preparar_movimentacoes_para_grupo_logico(df_mov: pd.DataFrame) -> pd.DataFrame:
+    # Comentário: prepara a tabela de movimentações para o cálculo de saldo.
     if df_mov is None or df_mov.empty:
         return pd.DataFrame()
 
@@ -84,7 +89,7 @@ def preparar_movimentacoes_para_grupo_logico(df_mov: pd.DataFrame) -> pd.DataFra
     for coluna in colunas:
         df = _garantir_coluna(df, coluna, "")
 
-    for coluna in [
+    colunas_texto = [
         "tipo",
         "produto_codigo",
         "localizacao_codigo",
@@ -102,7 +107,9 @@ def preparar_movimentacoes_para_grupo_logico(df_mov: pd.DataFrame) -> pd.DataFra
         "doc_log",
         "unidade_normal",
         "unidade_convertida",
-    ]:
+    ]
+
+    for coluna in colunas_texto:
         df[coluna] = df[coluna].fillna("").astype(str).str.strip()
 
     for coluna in ["id", "quantidade_embalagem", "peso_calculado", "peso_convertido", "item_gr_origem_id"]:
@@ -110,49 +117,63 @@ def preparar_movimentacoes_para_grupo_logico(df_mov: pd.DataFrame) -> pd.DataFra
 
     df["juntar_destino"] = df["juntar_destino"].fillna(False).astype(bool)
 
-    def _grupo_destino(row):
-        grupo = _to_str(row.get("grupo_logico_id", ""))
-
-        if grupo:
-            return grupo
-
-        id_reg = int(_to_float(row.get("id", 0)))
-
-        if id_reg > 0:
-            return f"LEGADO|{id_reg}"
-
-        return ""
-
-    def _grupo_origem(row):
-        grupo = _to_str(row.get("grupo_logico_origem_id", ""))
-
-        if grupo:
-            return grupo
-
-        item_gr_id = int(_to_float(row.get("item_gr_origem_id", 0)))
-
-        if item_gr_id > 0:
-            return f"LEGADO|{item_gr_id}"
-
-        grupo_destino = _to_str(row.get("grupo_logico_id", ""))
-
-        if grupo_destino:
-            return grupo_destino
-
-        id_reg = int(_to_float(row.get("id", 0)))
-
-        if id_reg > 0:
-            return f"LEGADO|{id_reg}"
-
-        return ""
-
-    df["grupo_logico_id"] = df.apply(_grupo_destino, axis=1)
-    df["grupo_logico_origem_id"] = df.apply(_grupo_origem, axis=1)
-
     return df
 
 
+def _grupo_gr_destino(row) -> str:
+    # Comentário: define o grupo lógico de destino apenas para GR/sobra.
+    grupo = _to_str(row.get("grupo_logico_id", ""))
+
+    if grupo:
+        return grupo
+
+    id_reg = int(_to_float(row.get("id", 0)))
+
+    if id_reg > 0:
+        return f"LEGADO|{id_reg}"
+
+    return ""
+
+
+def _grupo_gr_origem(row) -> str:
+    # Comentário: define o grupo lógico de origem apenas para GR/sobra.
+    grupo = _to_str(row.get("grupo_logico_origem_id", ""))
+
+    if grupo:
+        return grupo
+
+    item_gr_id = int(_to_float(row.get("item_gr_origem_id", 0)))
+
+    if item_gr_id > 0:
+        return f"LEGADO|{item_gr_id}"
+
+    grupo_destino = _to_str(row.get("grupo_logico_id", ""))
+
+    if grupo_destino:
+        return grupo_destino
+
+    id_reg = int(_to_float(row.get("id", 0)))
+
+    if id_reg > 0:
+        return f"LEGADO|{id_reg}"
+
+    return ""
+
+
+def _grupo_fechado(produto: str, localizacao: str, lote: str, status: str, embalagem: str) -> str:
+    # Comentário: cria uma chave fixa para estoque fechado.
+    # Comentário: fechado não pode depender de grupo_logico_id, senão a saída não baixa a entrada.
+    produto = _to_str(produto).upper()
+    localizacao = _to_str(localizacao).upper()
+    lote = _to_str(lote).upper()
+    status = _to_str(status).upper()
+    embalagem = _to_str(embalagem).upper()
+
+    return f"FECHADO|{produto}|{localizacao}|{lote}|{status}|{embalagem}"
+
+
 def montar_saldo_por_grupo_logico(df_mov: pd.DataFrame) -> pd.DataFrame:
+    # Comentário: calcula saldo mantendo a regra antiga para GR e corrigindo fechados.
     df = preparar_movimentacoes_para_grupo_logico(df_mov)
 
     if df.empty:
@@ -165,9 +186,6 @@ def montar_saldo_por_grupo_logico(df_mov: pd.DataFrame) -> pd.DataFrame:
         embalagem = _to_str(row.get("embalagem", "")).upper()
         produto = _to_str(row.get("produto_codigo", "")).upper()
 
-        grupo_destino = _to_str(row.get("grupo_logico_id", ""))
-        grupo_origem = _to_str(row.get("grupo_logico_origem_id", ""))
-
         peso = _to_float(row.get("peso_calculado", 0))
         peso_convertido = _to_float(row.get("peso_convertido", 0))
         quantidade_embalagem = _to_float(row.get("quantidade_embalagem", 0))
@@ -175,53 +193,98 @@ def montar_saldo_por_grupo_logico(df_mov: pd.DataFrame) -> pd.DataFrame:
         unidade_normal = _to_str(row.get("unidade_normal", "")).upper()
         unidade_convertida = _to_str(row.get("unidade_convertida", "")).upper()
 
+        # ======================================================
+        # ENTRADA
+        # ======================================================
         if tipo == "ENTRADA":
+            localizacao = _to_str(row.get("localizacao_codigo", "")).upper()
+            lote = _to_str(row.get("lote", "")).upper()
+            status = _to_str(row.get("status", "")).upper()
+
+            if embalagem == "GR":
+                grupo = _grupo_gr_destino(row)
+                saldo_embalagem = 0.0
+            else:
+                grupo = _grupo_fechado(produto, localizacao, lote, status, embalagem)
+                saldo_embalagem = quantidade_embalagem
+
             movimentos.append({
-                "grupo_logico_id": grupo_destino,
+                "grupo_logico_id": grupo,
                 "produto_codigo": produto,
-                "localizacao_codigo": _to_str(row.get("localizacao_codigo", "")).upper(),
-                "lote": _to_str(row.get("lote", "")).upper(),
-                "status": _to_str(row.get("status", "")).upper(),
+                "localizacao_codigo": localizacao,
+                "lote": lote,
+                "status": status,
                 "embalagem": embalagem,
                 "unidade_normal": unidade_normal,
                 "unidade_convertida": unidade_convertida,
-                "saldo_embalagem_mov": quantidade_embalagem if embalagem != "GR" else 0.0,
+                "saldo_embalagem_mov": saldo_embalagem,
                 "saldo_normal_mov": peso,
                 "saldo_convertido_mov": peso_convertido,
             })
 
+        # ======================================================
+        # SAÍDA
+        # ======================================================
         elif tipo == "SAIDA":
+            localizacao = _to_str(row.get("localizacao_codigo", "")).upper()
+            lote = _to_str(row.get("lote", "")).upper()
+            status = _to_str(row.get("status", "")).upper()
+
+            if embalagem == "GR":
+                grupo = _grupo_gr_origem(row)
+                saldo_embalagem = 0.0
+            else:
+                grupo = _grupo_fechado(produto, localizacao, lote, status, embalagem)
+                saldo_embalagem = -quantidade_embalagem
+
             movimentos.append({
-                "grupo_logico_id": grupo_origem,
+                "grupo_logico_id": grupo,
                 "produto_codigo": produto,
-                "localizacao_codigo": _to_str(row.get("localizacao_codigo", "")).upper(),
-                "lote": _to_str(row.get("lote", "")).upper(),
-                "status": _to_str(row.get("status", "")).upper(),
+                "localizacao_codigo": localizacao,
+                "lote": lote,
+                "status": status,
                 "embalagem": embalagem,
                 "unidade_normal": unidade_normal,
                 "unidade_convertida": unidade_convertida,
-                "saldo_embalagem_mov": -quantidade_embalagem if embalagem != "GR" else 0.0,
+                "saldo_embalagem_mov": saldo_embalagem,
                 "saldo_normal_mov": -peso,
                 "saldo_convertido_mov": -peso_convertido,
             })
 
+        # ======================================================
+        # MOVIMENTAÇÃO
+        # ======================================================
         elif tipo == "MOVIMENTACAO":
+            origem = _to_str(row.get("localizacao_origem_codigo", "")).upper()
+            destino = _to_str(row.get("localizacao_destino_codigo", "")).upper()
+
             lote_origem = _to_str(row.get("lote_origem", "")).upper()
             lote_destino = _to_str(row.get("lote_destino", "")).upper() or _to_str(row.get("lote", "")).upper()
 
             status_origem = _to_str(row.get("status_origem", "")).upper()
             status_destino = _to_str(row.get("status_destino", "")).upper() or _to_str(row.get("status", "")).upper()
 
+            if embalagem == "GR":
+                grupo_origem = _grupo_gr_origem(row)
+                grupo_destino = _grupo_gr_destino(row)
+                saldo_emb_origem = 0.0
+                saldo_emb_destino = 0.0
+            else:
+                grupo_origem = _grupo_fechado(produto, origem, lote_origem, status_origem, embalagem)
+                grupo_destino = _grupo_fechado(produto, destino, lote_destino, status_destino, embalagem)
+                saldo_emb_origem = -quantidade_embalagem
+                saldo_emb_destino = quantidade_embalagem
+
             movimentos.append({
                 "grupo_logico_id": grupo_origem,
                 "produto_codigo": produto,
-                "localizacao_codigo": _to_str(row.get("localizacao_origem_codigo", "")).upper(),
+                "localizacao_codigo": origem,
                 "lote": lote_origem,
                 "status": status_origem,
                 "embalagem": embalagem,
                 "unidade_normal": unidade_normal,
                 "unidade_convertida": unidade_convertida,
-                "saldo_embalagem_mov": -quantidade_embalagem if embalagem != "GR" else 0.0,
+                "saldo_embalagem_mov": saldo_emb_origem,
                 "saldo_normal_mov": -peso,
                 "saldo_convertido_mov": -peso_convertido,
             })
@@ -229,13 +292,13 @@ def montar_saldo_por_grupo_logico(df_mov: pd.DataFrame) -> pd.DataFrame:
             movimentos.append({
                 "grupo_logico_id": grupo_destino,
                 "produto_codigo": produto,
-                "localizacao_codigo": _to_str(row.get("localizacao_destino_codigo", "")).upper(),
+                "localizacao_codigo": destino,
                 "lote": lote_destino,
                 "status": status_destino,
                 "embalagem": embalagem,
                 "unidade_normal": unidade_normal,
                 "unidade_convertida": unidade_convertida,
-                "saldo_embalagem_mov": quantidade_embalagem if embalagem != "GR" else 0.0,
+                "saldo_embalagem_mov": saldo_emb_destino,
                 "saldo_normal_mov": peso,
                 "saldo_convertido_mov": peso_convertido,
             })
@@ -264,6 +327,7 @@ def montar_saldo_por_grupo_logico(df_mov: pd.DataFrame) -> pd.DataFrame:
     )
 
     def _saldo_embalagem_final(row):
+        # Comentário: GR aparece como 1 sobra quando ainda existe peso.
         embalagem = _to_str(row.get("embalagem", "")).upper()
         saldo_peso = _to_float(row.get("saldo_normal_mov", 0))
         saldo_emb = _to_float(row.get("saldo_embalagem_mov", 0))
