@@ -1,0 +1,11 @@
+\\192.168.1.1\supply chain\Ciex Supply Chain\KPIs\Tabelas\Base
+
+let
+    FonteUTC = DateTimeZone.UtcNow(),
+    Brasil = FonteUTC - #duration(0,3,0,0),
+    SemFuso = DateTimeZone.RemoveZone(Brasil),
+    Tabela = #table(1, {{SemFuso}}),
+    Tipo = Table.TransformColumnTypes(Tabela,{{"Column1", type datetime}}),
+    Renomear = Table.RenameColumns(Tipo,{{"Column1", "Dt Atualização"}})
+in
+    Renomear
